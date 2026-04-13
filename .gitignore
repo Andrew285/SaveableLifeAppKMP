@@ -1,0 +1,73 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# Android
+*.apk
+*.aab
+*.ap_
+*.dex
+local.properties
+keystore.properties
+*.jks
+*.keystore
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+.DS_Store
+
+# Kotlin
+*.class
+*.kotlin_module
+
+# SQLDelight generated
+**/generated/
+
+# Secrets & credentials
+google-services.json
+GoogleService-Info.plist
+credentials.json
+token.json
+*.token
+secrets.properties
+local.properties
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V3
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Node (if any tooling)
+node_modules/
+
+# Logs
+*.log
+*.hprof
+
+# KMP / Compose Desktop
+*.dmg
+*.msi
+*.deb
+*.exe
+
+# iOS (disabled but just in case)
+*.xcworkspace
+*.xcodeproj
+Pods/
+DerivedData/
+
+# Cache
+.cache/
+.kotlin/
