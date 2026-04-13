@@ -1,0 +1,74 @@
+CREATE TABLE SavedItem (
+    id TEXT NOT NULL PRIMARY KEY,
+    value_ TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT 'text',
+    subcategory TEXT NOT NULL DEFAULT '',
+    priority TEXT NOT NULL DEFAULT 'medium',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    is_synced INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE Category (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    color TEXT NOT NULL DEFAULT '#4ade80',
+    parent_id TEXT,
+    is_builtin INTEGER NOT NULL DEFAULT 0
+);
+
+-- SavedItem queries
+insertItem:
+INSERT OR REPLACE INTO SavedItem(id, value_, title, description, category, subcategory, priority, created_at, updated_at, is_synced)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+getAllItems:
+SELECT * FROM SavedItem ORDER BY created_at DESC;
+
+getItemsByCategory:
+SELECT * FROM SavedItem
+WHERE category = ? OR subcategory = ?
+ORDER BY created_at DESC;
+
+getItemsToday:
+SELECT * FROM SavedItem
+WHERE created_at >= ?
+ORDER BY created_at DESC;
+
+getItemsBetween:
+SELECT * FROM SavedItem
+WHERE created_at >= ? AND created_at <= ?
+ORDER BY created_at DESC;
+
+getUnsyncedItems:
+SELECT * FROM SavedItem WHERE is_synced = 0;
+
+updateItem:
+UPDATE SavedItem
+SET value_ = ?, title = ?, description = ?, category = ?, subcategory = ?, priority = ?, updated_at = ?, is_synced = 0
+WHERE id = ?;
+
+deleteItem:
+DELETE FROM SavedItem WHERE id = ?;
+
+markSynced:
+UPDATE SavedItem SET is_synced = 1 WHERE id = ?;
+
+deleteAllItems:
+DELETE FROM SavedItem;
+
+-- Category queries
+insertCategory:
+INSERT OR REPLACE INTO Category(id, name, color, parent_id, is_builtin)
+VALUES (?, ?, ?, ?, ?);
+
+getAllCategories:
+SELECT * FROM Category ORDER BY is_builtin DESC, name ASC;
+
+deleteCategory:
+DELETE FROM Category WHERE id = ? AND is_builtin = 0;
+
+updateItemsCategoryOnDelete:
+UPDATE SavedItem SET category = 'text', subcategory = '' WHERE category = ? OR subcategory = ?;
