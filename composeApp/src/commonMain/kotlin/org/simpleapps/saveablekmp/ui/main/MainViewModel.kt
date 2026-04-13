@@ -2,6 +2,7 @@ package org.simpleapps.saveablekmp.ui.main
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import org.simpleapps.saveablekmp.Clipboard
@@ -15,6 +16,8 @@ import org.simpleapps.saveablekmp.domain.detector.CategoryDetector
 import org.simpleapps.saveablekmp.domain.usecase.DeleteItemUseCase
 import org.simpleapps.saveablekmp.domain.usecase.SaveItemUseCase
 import org.simpleapps.saveablekmp.domain.usecase.UpdateItemUseCase
+import org.simpleapps.saveablekmp.sync.DriveSync
+import org.simpleapps.saveablekmp.sync.GoogleAuthManager
 import org.simpleapps.saveablekmp.toBase64DataUrl
 
 data class MainState(
@@ -33,6 +36,10 @@ data class MainState(
     val isEditDialogOpen: Boolean = false,
     val toastMessage: String? = null,
     val pendingImageBytes: ByteArray? = null,
+    val isSyncing: Boolean = false,
+    val lastSyncTime: Long? = null,
+    val scrollToTop: Boolean = false,
+    val newItemsFromSync: Int = 0,
 ) {
     val filteredItems: List<SavedItem>
         get() = items.filter { item ->
@@ -66,6 +73,8 @@ sealed interface MainEvent {
     object PasteImage : MainEvent
     object PickImage : MainEvent
     object ClearPendingImage : MainEvent
+    object ScrollHandled : MainEvent
+    object ScrollToTopAndClearBanner : MainEvent
 }
 
 class MainViewModel(
@@ -73,23 +82,146 @@ class MainViewModel(
     private val saveItem: SaveItemUseCase,
     private val deleteItem: DeleteItemUseCase,
     private val updateItem: UpdateItemUseCase,
+    private val authManager: GoogleAuthManager,
+    private val driveSync: DriveSync,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(MainState())
     val state: StateFlow<MainState> = _state.asStateFlow()
 
+    // Channel для debounce синхронізації
+    private val syncTrigger = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
+    )
+
     init {
-        viewModelScope.launch {
-            repository.initDefaultCategories()
-        }
+        viewModelScope.launch { repository.initDefaultCategories() }
+
         viewModelScope.launch {
             combine(
                 repository.observeAllItems(),
                 repository.observeCategories(),
-            ) { items, cats -> Pair(items, cats) }
+            ) { items, cats -> items to cats }
                 .collect { (items, cats) ->
                     _state.update { it.copy(items = items, categories = cats) }
                 }
+        }
+
+        // Синхронізація при старті — окремий launch
+        viewModelScope.launch { initSync() }
+
+        // Debounce — окремий launch
+        viewModelScope.launch {
+            syncTrigger
+                .debounce(3000)
+                .collect { pushToDrive() }
+        }
+
+        // Polling — окремий launch, НЕ всередині initSync
+        viewModelScope.launch {
+            println("=== polling started")
+            delay(35_000) // перша перевірка через 35с
+            while (true) {
+                println("=== polling tick, isSignedIn: ${authManager.isSignedIn()}")
+                if (authManager.isSignedIn()) {
+                    pullFromDrive()
+                }
+                delay(30_000)
+            }
+        }
+    }
+
+    private suspend fun initSync() {
+        println("=== Android initSync start")
+        println("=== isSignedIn: ${authManager.isSignedIn()}")
+        val saved = authManager.getSavedToken()
+        println("=== savedToken: ${saved?.take(10)}")
+        if (!authManager.isSignedIn()) {
+            println("=== initSync: not signed in, skip")
+            return
+        }
+
+        val savedToken = authManager.getSavedToken()
+        println("=== getSavedToken: $savedToken")
+
+        val token = when {
+            // Реальний токен є в пам'яті
+            savedToken != null && savedToken != "__needs_refresh__" -> {
+                println("=== using saved token")
+                savedToken
+            }
+            // StoredCredential є але потрібно відновити через signIn()
+            savedToken == "__needs_refresh__" || savedToken == null -> {
+                println("=== refreshing token via signIn()")
+                try {
+                    val newToken = authManager.signIn()
+                    println("=== signIn result: ${newToken?.take(10)}")
+                    newToken
+                } catch (e: Exception) {
+                    println("=== signIn error: ${e.message}")
+                    null
+                }
+            }
+            else -> null
+        }
+
+        if (token == null || token == "__needs_refresh__") {
+            println("=== initSync: could not get valid token, skip")
+            return
+        }
+
+        driveSync.setToken(token)
+        println("=== token set successfully: ${token.take(10)}...")
+
+        _state.update { it.copy(isSyncing = true) }
+        pullFromDrive()
+        pushToDrive()
+        _state.update { it.copy(
+            isSyncing = false,
+            lastSyncTime = System.currentTimeMillis(),
+        )}
+        println("=== initSync done")
+    }
+
+    private suspend fun pullFromDrive() {
+        try {
+            val remoteItems = driveSync.pullItems()
+            if (remoteItems.isNotEmpty()) {
+                val existingIds = _state.value.items.map { it.id }.toSet()
+                var newCount = 0
+                remoteItems.forEach { item ->
+                    repository.insertItem(item)
+                    if (item.id !in existingIds) newCount++
+                }
+                if (newCount > 0) {
+                    _state.update { it.copy(newItemsFromSync = newCount) }
+                }
+                println("=== Pulled ${remoteItems.size} items, $newCount new")
+            }
+        } catch (e: Exception) {
+            println("=== Pull failed: ${e.message}")
+        }
+    }
+
+    private suspend fun pushToDrive() {
+        try {
+            val unsynced = repository.getUnsyncedItems()
+            println("=== pushToDrive: ${unsynced.size} unsynced items, token: ${driveSync.getToken()}")
+            if (unsynced.isNotEmpty()) {
+                driveSync.pushItems()
+                println("=== Pushed ${unsynced.size} items")
+            }
+        } catch (e: Exception) {
+            println("=== Push failed: ${e::class.simpleName}: ${e.message}")
+        }
+    }
+
+    // Тригерить debounce sync після будь-якої зміни
+    private fun triggerSync() {
+        println("=== triggerSync called, isSignedIn: ${authManager.isSignedIn()}")
+        if (authManager.isSignedIn()) {
+            syncTrigger.tryEmit(Unit)
         }
     }
 
@@ -148,14 +280,17 @@ class MainViewModel(
                             isExpanded = false,
                             pendingImageBytes = null, // ← очищаємо
                             toastMessage = "Збережено ✓",
+                            scrollToTop = true
                         )
                     }
+                    triggerSync()
                 }
             }
             is MainEvent.Delete -> {
                 viewModelScope.launch {
                     deleteItem(event.id)
                     _state.update { it.copy(toastMessage = "Видалено") }
+                    triggerSync()
                 }
             }
             is MainEvent.Copy -> {
@@ -168,6 +303,7 @@ class MainViewModel(
                 viewModelScope.launch {
                     updateItem(event.item)
                     _state.update { it.copy(editingItem = null, isEditDialogOpen = false, toastMessage = "Оновлено ✓") }
+                    triggerSync()
                 }
             }
             is MainEvent.FilterCategory -> _state.update { it.copy(filterCategory = event.id) }
@@ -201,8 +337,15 @@ class MainViewModel(
                     }
                 }
             }
+
             is MainEvent.ClearPendingImage -> _state.update {
                 it.copy(pendingImageBytes = null, inputValue = "", inputCategory = "text")
+            }
+
+            is MainEvent.ScrollHandled -> _state.update { it.copy(scrollToTop = false) }
+
+            is MainEvent.ScrollToTopAndClearBanner -> {
+                _state.update { it.copy(newItemsFromSync = 0, scrollToTop = true) }
             }
         }
     }

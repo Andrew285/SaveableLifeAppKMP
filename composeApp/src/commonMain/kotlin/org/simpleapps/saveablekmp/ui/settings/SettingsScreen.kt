@@ -178,6 +178,59 @@ fun SettingsScreen(
                     }
                 }
 
+                // --- Sync section ---
+                item {
+                    SettingsSection(title = "Синхронізація з Google Drive") {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // Статус
+                            if (state.isSignedIn) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(AppColors.Green)
+                                    )
+                                    Text(
+                                        "Підключено до Google Drive",
+                                        style = AppTypography.bodySmall.copy(color = AppColors.Green),
+                                    )
+                                }
+                            }
+
+                            AppButton(
+                                text = if (state.isSignedIn) "✓ Підключено" else "Увійти через Google",
+                                onClick = { viewModel.onEvent(SettingsEvent.SignInGoogle) },
+                                enabled = !state.isSyncing,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                GhostButton(
+                                    text = if (state.isSyncing) "..." else "↑ Завантажити",
+                                    onClick = { viewModel.onEvent(SettingsEvent.SyncNow) },
+                                    modifier = Modifier.weight(1f),
+                                )
+                                GhostButton(
+                                    text = if (state.isSyncing) "..." else "↓ Отримати",
+                                    onClick = { viewModel.onEvent(SettingsEvent.PullFromDrive) },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            if (state.isSignedIn) {
+                                GhostButton(
+                                    text = "Вийти",
+                                    onClick = { viewModel.onEvent(SettingsEvent.SignOut) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // ── Danger zone ───────────────────────────────────────
                 item {
                     SettingsSection(

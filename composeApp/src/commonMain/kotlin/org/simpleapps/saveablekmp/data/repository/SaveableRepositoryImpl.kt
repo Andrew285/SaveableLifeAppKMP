@@ -100,6 +100,9 @@ class SaveableRepository(db: SaveableDatabase) {
     fun getUnsyncedItems(): List<SavedItem> =
         itemQueries.getUnsyncedItems().executeAsList().map { it.toModel() }
 
+    fun getAllItemsOnce(): List<SavedItem> =
+        itemQueries.getAllItems().executeAsList().map { it.toModel() }
+
     suspend fun markSynced(id: String) {
         itemQueries.markSynced(id)
     }

@@ -21,6 +21,12 @@ kotlin {
 
     sourceSets {
         androidMain.dependencies {
+            implementation("androidx.work:work-runtime-ktx:2.9.1")
+
+            implementation("com.google.android.gms:play-services-auth:21.2.0")
+            implementation("com.google.api-client:google-api-client-android:2.2.0")
+            implementation("com.google.apis:google-api-services-drive:v3-rev20240521-2.0.0")
+
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.androidx.activity.compose)
             implementation(libs.ktor.client.okhttp)
@@ -28,6 +34,9 @@ kotlin {
             implementation(libs.koin.android)
         }
         commonMain.dependencies {
+            implementation("io.ktor:ktor-client-core:3.0.3")
+            implementation("io.ktor:ktor-client-auth:3.0.3")
+
             implementation(compose.runtime)
             implementation(compose.foundation)
             implementation(compose.material3)
@@ -58,6 +67,10 @@ kotlin {
             implementation(libs.kotlin.test)
         }
         jvmMain.dependencies {
+            implementation("com.google.api-client:google-api-client:2.2.0")
+            implementation("com.google.oauth-client:google-oauth-client-jetty:1.34.1")
+            implementation("com.google.apis:google-api-services-drive:v3-rev20240521-2.0.0")
+
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutinesSwing)
             implementation(libs.ktor.client.java)
@@ -88,6 +101,10 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "META-INF/INDEX.LIST"
+            excludes += "META-INF/DEPENDENCIES"
+            excludes += "META-INF/LICENSE.md"
+            excludes += "META-INF/LICENSE-notice.md"
         }
     }
     buildTypes {

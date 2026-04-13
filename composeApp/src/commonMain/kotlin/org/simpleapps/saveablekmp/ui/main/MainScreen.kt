@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
@@ -37,6 +38,14 @@ fun MainScreen(
     onNavigateSettings: () -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(state.scrollToTop) {
+        if (state.scrollToTop) {
+            listState.animateScrollToItem(0)
+            viewModel.onEvent(MainEvent.ScrollHandled)
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(AppColors.Bg)) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -47,13 +56,28 @@ fun MainScreen(
                     .fillMaxWidth()
                     .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 0.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text("Сховище даних", style = AppTypography.titleLarge)
                     Spacer(Modifier.height(3.dp))
-                    Text("Зберігайте будь-яку інформацію в одному місці", style = AppTypography.subtitle)
+                    // Показуємо статус синхронізації під заголовком
+                    when {
+                        state.isSyncing -> Text(
+                            "↻ Синхронізація...",
+                            style = AppTypography.caption.copy(color = AppColors.Green),
+                        )
+                        state.lastSyncTime != null -> Text(
+                            "✓ ${formatTimestamp(state.lastSyncTime!!)}",
+                            style = AppTypography.caption.copy(color = AppColors.Text3),
+                        )
+                        else -> Text(
+                            "Зберігайте будь-яку інформацію в одному місці",
+                            style = AppTypography.subtitle,
+                        )
+                    }
                 }
+                Spacer(Modifier.width(12.dp))
                 GhostButton("⚙ Налаштування", onClick = onNavigateSettings)
             }
 
@@ -80,6 +104,35 @@ fun MainScreen(
 
             Spacer(Modifier.height(10.dp))
 
+            if (state.newItemsFromSync > 0) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
+                        .clip(RoundedMedium)
+                        .background(AppColors.GreenDim)
+                        .border(1.dp, AppColors.Green.copy(alpha = 0.3f), RoundedMedium)
+                        .clickable { viewModel.onEvent(MainEvent.ScrollToTopAndClearBanner) }
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "↑ ${state.newItemsFromSync} нових елементів",
+                            style = AppTypography.bodySmall.copy(color = AppColors.Green),
+                        )
+                        Text(
+                            "Показати",
+                            style = AppTypography.caption.copy(color = AppColors.Green),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+
             // ── Items ────────────────────────────────────────────────────
             if (state.filteredItems.isEmpty()) {
                 EmptyState(
@@ -88,6 +141,7 @@ fun MainScreen(
                 )
             } else {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.weight(1f).padding(horizontal = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     contentPadding = PaddingValues(bottom = 24.dp),
