@@ -15,6 +15,7 @@ fun org.simpleapps.saveablekmp.data.db.SavedItem.toModel() = SavedItem(
     createdAt = created_at,
     updatedAt = updated_at,
     isSynced = is_synced == 1L,
+    isDeleted = is_deleted == 1L,
 )
 
 fun org.simpleapps.saveablekmp.data.db.Category.toModel() = Category(

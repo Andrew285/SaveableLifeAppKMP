@@ -73,10 +73,13 @@ class SaveableRepository(db: SaveableDatabase) {
             created_at = item.createdAt,
             updated_at = item.updatedAt,
             is_synced = if (item.isSynced) 1L else 0L,
+            is_deleted = if (item.isDeleted) 1L else 0L,
         )
     }
 
     suspend fun updateItem(item: SavedItem) {
+        val newTime = Clock.System.now().toEpochMilliseconds()
+        println("=== updateItem: id=${item.id.take(6)}, newTime=$newTime, oldTime=${item.updatedAt}")
         itemQueries.updateItem(
             value_ = item.value,
             title = item.title,
@@ -84,13 +87,33 @@ class SaveableRepository(db: SaveableDatabase) {
             category = item.category,
             subcategory = item.subcategory,
             priority = item.priority.name,
-            updated_at = Clock.System.now().toEpochMilliseconds(),
+            updated_at = newTime,
             id = item.id,
+        )
+        // Перевіримо що реально збереглось в БД
+        val saved = itemQueries.getAllItemsIncludingDeleted().executeAsList()
+            .find { it.id == item.id }
+        println("=== after update, db updatedAt=${saved?.updated_at}")
+    }
+
+    suspend fun softDeleteItem(id: String) {
+        itemQueries.softDeleteItem(
+            updated_at = Clock.System.now().toEpochMilliseconds(),
+            id = id,
         )
     }
 
     suspend fun deleteItem(id: String) {
         itemQueries.deleteItem(id)
+    }
+
+    // Всі елементи включно з видаленими — для синхронізації
+    fun getAllItemsIncludingDeleted(): List<SavedItem> =
+        itemQueries.getAllItemsIncludingDeleted().executeAsList().map { it.toModel() }
+
+    // Видалити синхронізовані soft-deleted елементи
+    suspend fun purgeDeletedSynced() {
+        itemQueries.purgeDeletedSynced()
     }
 
     suspend fun deleteAllItems() {

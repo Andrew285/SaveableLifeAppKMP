@@ -92,31 +92,48 @@ class DriveSync(
     // ── Завантажити items.json на Drive ──────────────────────────────────
     suspend fun pushItems() {
         val folder = folderId ?: getOrCreateFolder().also { folderId = it }
-        val items = repository.getUnsyncedItems()
-        if (items.isEmpty()) return
+        val unsynced = repository.getUnsyncedItems()
+        if (unsynced.isEmpty()) return
 
-        val allItems = repository.getAllItemsOnce()
+        val allItems = repository.getAllItemsIncludingDeleted()
+        val editedItem = allItems.find { !it.isSynced }
+        println("=== push: unsynced item ${editedItem?.id?.take(6)}, updatedAt=${editedItem?.updatedAt}")
+
         val json = Json.encodeToString<List<SavedItem>>(allItems)
+        val bytes = json.encodeToByteArray()
 
-        // Перевіряємо чи існує items.json
         val existingId = findFile("items.json", folder)
 
         if (existingId != null) {
-            // Оновлюємо існуючий файл
-            httpClient.patch(
+            // Використовуємо multipart update замість media-only
+            val boundary = "boundary_saveable_${System.currentTimeMillis()}"
+            val metadata = """{"name":"items.json"}"""
+            val sb = StringBuilder()
+            sb.append("--$boundary\r\n")
+            sb.append("Content-Type: application/json; charset=UTF-8\r\n\r\n")
+            sb.append("$metadata\r\n")
+            sb.append("--$boundary\r\n")
+            sb.append("Content-Type: application/json\r\n\r\n")
+            val header = sb.toString().encodeToByteArray()
+            val footer = "\r\n--$boundary--".encodeToByteArray()
+            val body = header + bytes + footer
+
+            val response = httpClient.patch(
                 "https://www.googleapis.com/upload/drive/v3/files/$existingId"
             ) {
                 header("Authorization", "Bearer $accessToken")
-                parameter("uploadType", "media")
-                contentType(ContentType.Application.Json)
-                setBody(json)
+                parameter("uploadType", "multipart")
+                contentType(ContentType.parse("multipart/related; boundary=$boundary"))
+                setBody(body)
             }
+            println("=== patch status: ${response.status}")
+            println("=== patch body: ${response.bodyAsText()}")
         } else {
-            // Створюємо новий
-            uploadFile("items.json", json.encodeToByteArray(), "application/json", folder)
+            uploadFile("items.json", bytes, "application/json", folder)
         }
 
-        items.forEach { repository.markSynced(it.id) }
+        unsynced.forEach { repository.markSynced(it.id) }
+        repository.purgeDeletedSynced()
     }
 
     // ── Завантажити зображення ───────────────────────────────────────────

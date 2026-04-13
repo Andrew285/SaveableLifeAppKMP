@@ -187,21 +187,102 @@ class MainViewModel(
     private suspend fun pullFromDrive() {
         try {
             val remoteItems = driveSync.pullItems()
-            if (remoteItems.isNotEmpty()) {
-                val existingIds = _state.value.items.map { it.id }.toSet()
-                var newCount = 0
-                remoteItems.forEach { item ->
-                    repository.insertItem(item)
-                    if (item.id !in existingIds) newCount++
+            processRemoteItems(remoteItems)
+
+            if (remoteItems.isEmpty()) return
+
+            val localItemsMap = repository.getAllItemsIncludingDeleted()
+                .associateBy { it.id }
+
+            var newCount = 0
+            var updatedCount = 0
+
+            remoteItems.forEach { remoteItem ->
+                val localItem = localItemsMap[remoteItem.id]
+                println("=== item ${remoteItem.id.take(6)}: " +
+                        "remote.updatedAt=${remoteItem.updatedAt}, " +
+                        "local.updatedAt=${localItem?.updatedAt}, " +
+                        "local.isSynced=${localItem?.isSynced}, " +
+                        "remote.isDeleted=${remoteItem.isDeleted}"
+                )
+
+                when {
+                    remoteItem.isDeleted -> {
+                        repository.deleteItem(remoteItem.id)
+                    }
+                    localItem == null -> {
+                        repository.insertItem(remoteItem.copy(isSynced = true))
+                        newCount++
+                    }
+                    !localItem.isSynced -> {
+                        // локальні зміни — пропускаємо
+                        println("=== skip ${remoteItem.id.take(6)}: local unsyced")
+                    }
+                    remoteItem.updatedAt > localItem.updatedAt -> {
+                        repository.insertItem(remoteItem.copy(isSynced = true))
+                        updatedCount++
+                        println("=== updated ${remoteItem.id.take(6)}")
+                    }
+                    else -> {
+                        println("=== skip ${remoteItem.id.take(6)}: local is newer or equal")
+                    }
                 }
-                if (newCount > 0) {
-                    _state.update { it.copy(newItemsFromSync = newCount) }
-                }
-                println("=== Pulled ${remoteItems.size} items, $newCount new")
             }
+
+            if (newCount > 0) {
+                _state.update { it.copy(newItemsFromSync = newCount) }
+            }
+            println("=== Pulled ${remoteItems.size} items, $newCount new, $updatedCount updated")
         } catch (e: Exception) {
-            println("=== Pull failed: ${e.message}")
+            val msg = e.message ?: ""
+            if (msg.contains("401") || msg.contains("UNAUTHENTICATED") || msg.contains("No 'id'")) {
+                // Токен протік — оновлюємо
+                println("=== token expired, refreshing...")
+                try {
+                    val newToken = authManager.signIn()
+                    if (newToken != null) {
+                        driveSync.setToken(newToken)
+                        println("=== token refreshed, retrying pull")
+                        // Повторна спроба
+                        val remoteItems = driveSync.pullItems()
+                        processRemoteItems(remoteItems)
+                    }
+                } catch (refreshError: Exception) {
+                    println("=== token refresh failed: ${refreshError.message}")
+                }
+            } else {
+                println("=== Pull failed: ${e.message}")
+            }
         }
+    }
+
+    private suspend fun processRemoteItems(remoteItems: List<SavedItem>) {
+        if (remoteItems.isEmpty()) return
+        val localItemsMap = repository.getAllItemsIncludingDeleted().associateBy { it.id }
+        val existingIds = _state.value.items.map { it.id }.toSet()
+        var newCount = 0
+        var updatedCount = 0
+
+        remoteItems.forEach { remoteItem ->
+            val localItem = localItemsMap[remoteItem.id]
+            println("=== item ${remoteItem.id.take(6)}: remote=${remoteItem.updatedAt}, local=${localItem?.updatedAt}, synced=${localItem?.isSynced}")
+            when {
+                remoteItem.isDeleted -> repository.deleteItem(remoteItem.id)
+                localItem == null -> {
+                    repository.insertItem(remoteItem.copy(isSynced = true))
+                    newCount++
+                }
+                !localItem.isSynced -> { /* локальні зміни */ }
+                remoteItem.updatedAt > localItem.updatedAt -> {
+                    repository.insertItem(remoteItem.copy(isSynced = true))
+                    updatedCount++
+                }
+                else -> { /* skip */ }
+            }
+        }
+
+        if (newCount > 0) _state.update { it.copy(newItemsFromSync = newCount) }
+        println("=== Pulled ${remoteItems.size}, $newCount new, $updatedCount updated")
     }
 
     private suspend fun pushToDrive() {
@@ -213,7 +294,21 @@ class MainViewModel(
                 println("=== Pushed ${unsynced.size} items")
             }
         } catch (e: Exception) {
-            println("=== Push failed: ${e::class.simpleName}: ${e.message}")
+            val msg = e.message ?: ""
+            if (msg.contains("401") || msg.contains("UNAUTHENTICATED")) {
+                try {
+                    val newToken = authManager.signIn()
+                    if (newToken != null) {
+                        driveSync.setToken(newToken)
+                        driveSync.pushItems()
+                        println("=== Pushed after token refresh")
+                    }
+                } catch (refreshError: Exception) {
+                    println("=== push refresh failed: ${refreshError.message}")
+                }
+            } else {
+                println("=== Push failed: ${e.message}")
+            }
         }
     }
 
@@ -288,7 +383,7 @@ class MainViewModel(
             }
             is MainEvent.Delete -> {
                 viewModelScope.launch {
-                    deleteItem(event.id)
+                    repository.softDeleteItem(event.id)  // ← замість deleteItem
                     _state.update { it.copy(toastMessage = "Видалено") }
                     triggerSync()
                 }

@@ -8,7 +8,8 @@ CREATE TABLE SavedItem (
     priority TEXT NOT NULL DEFAULT 'medium',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
-    is_synced INTEGER NOT NULL DEFAULT 0
+    is_synced INTEGER NOT NULL DEFAULT 0,
+    is_deleted INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE Category (
@@ -19,27 +20,32 @@ CREATE TABLE Category (
     is_builtin INTEGER NOT NULL DEFAULT 0
 );
 
--- SavedItem queries
 insertItem:
-INSERT OR REPLACE INTO SavedItem(id, value_, title, description, category, subcategory, priority, created_at, updated_at, is_synced)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT OR REPLACE INTO SavedItem(id, value_, title, description, category, subcategory, priority, created_at, updated_at, is_synced, is_deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+getAllActiveItems:
+SELECT * FROM SavedItem WHERE is_deleted = 0 ORDER BY created_at DESC;
 
 getAllItems:
+SELECT * FROM SavedItem WHERE is_deleted = 0 ORDER BY created_at DESC;
+
+getAllItemsIncludingDeleted:
 SELECT * FROM SavedItem ORDER BY created_at DESC;
 
 getItemsByCategory:
 SELECT * FROM SavedItem
-WHERE category = ? OR subcategory = ?
+WHERE is_deleted = 0 AND (category = ? OR subcategory = ?)
 ORDER BY created_at DESC;
 
 getItemsToday:
 SELECT * FROM SavedItem
-WHERE created_at >= ?
+WHERE is_deleted = 0 AND created_at >= ?
 ORDER BY created_at DESC;
 
 getItemsBetween:
 SELECT * FROM SavedItem
-WHERE created_at >= ? AND created_at <= ?
+WHERE is_deleted = 0 AND created_at >= ? AND created_at <= ?
 ORDER BY created_at DESC;
 
 getUnsyncedItems:
@@ -50,6 +56,9 @@ UPDATE SavedItem
 SET value_ = ?, title = ?, description = ?, category = ?, subcategory = ?, priority = ?, updated_at = ?, is_synced = 0
 WHERE id = ?;
 
+softDeleteItem:
+UPDATE SavedItem SET is_deleted = 1, is_synced = 0, updated_at = ? WHERE id = ?;
+
 deleteItem:
 DELETE FROM SavedItem WHERE id = ?;
 
@@ -59,7 +68,12 @@ UPDATE SavedItem SET is_synced = 1 WHERE id = ?;
 deleteAllItems:
 DELETE FROM SavedItem;
 
--- Category queries
+purgeDeletedSynced:
+DELETE FROM SavedItem WHERE is_deleted = 1 AND is_synced = 1;
+
+updateItemsCategoryOnDelete:
+UPDATE SavedItem SET category = 'text', subcategory = '' WHERE category = ? OR subcategory = ?;
+
 insertCategory:
 INSERT OR REPLACE INTO Category(id, name, color, parent_id, is_builtin)
 VALUES (?, ?, ?, ?, ?);
@@ -69,6 +83,3 @@ SELECT * FROM Category ORDER BY is_builtin DESC, name ASC;
 
 deleteCategory:
 DELETE FROM Category WHERE id = ? AND is_builtin = 0;
-
-updateItemsCategoryOnDelete:
-UPDATE SavedItem SET category = 'text', subcategory = '' WHERE category = ? OR subcategory = ?;

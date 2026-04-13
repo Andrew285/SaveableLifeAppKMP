@@ -15,4 +15,5 @@ data class SavedItem(
     val createdAt: Long = Clock.System.now().toEpochMilliseconds(),
     val updatedAt: Long = Clock.System.now().toEpochMilliseconds(),
     val isSynced: Boolean = false,
+    val isDeleted: Boolean = false,
 )
