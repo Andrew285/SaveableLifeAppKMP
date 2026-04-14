@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import org.simpleapps.saveablekmp.UrlOpener
 import org.simpleapps.saveablekmp.data.model.Category
 import org.simpleapps.saveablekmp.data.model.Priority
 import org.simpleapps.saveablekmp.data.model.SavedItem
@@ -39,6 +40,21 @@ fun MainScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
+
+    // Детектор доскролювання
+    val shouldLoadMore = remember {
+        derivedStateOf {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            val total = listState.layoutInfo.totalItemsCount
+            lastVisible >= total - 5 // починаємо завантажувати коли 5 елементів до кінця
+        }
+    }
+
+    LaunchedEffect(shouldLoadMore.value) {
+        if (shouldLoadMore.value && state.hasMoreItems && !state.isLoadingMore) {
+            viewModel.loadNextPage()
+        }
+    }
 
     LaunchedEffect(state.scrollToTop) {
         if (state.scrollToTop) {
@@ -154,6 +170,17 @@ fun MainScreen(
                             onEdit = { viewModel.onEvent(MainEvent.StartEdit(item)) },
                             onDelete = { viewModel.onEvent(MainEvent.Delete(item.id)) },
                         )
+                    }
+                    // Індикатор завантаження
+                    if (state.isLoadingMore) {
+                        item {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("Завантаження...", style = AppTypography.caption)
+                            }
+                        }
                     }
                 }
             }
@@ -458,11 +485,25 @@ fun ItemCard(
                 IconButton28(onClick = onCopy) {
                     Text("⎘", style = AppTypography.caption.copy(color = AppColors.Text2))
                 }
+                // Кнопка ↗
                 if (item.category == "link") {
-                    IconButton28(onClick = { /* open url */ }) {
+                    IconButton28(onClick = { UrlOpener.open(item.value) }) {
                         Text("↗", style = AppTypography.caption.copy(color = AppColors.Text2))
                     }
                 }
+
+//                // Значення посилання — зроби клікабельним
+//                if (item.category == "link") {
+//                    Text(
+//                        text = item.value,
+//                        style = AppTypography.mono.copy(
+//                            color = AppColors.Green,
+//                            textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+//                        ),
+//                        maxLines = 2,
+//                        modifier = Modifier.clickable { UrlOpener.open(item.value) },
+//                    )
+//                }
                 if (item.category == "password") {
                     IconButton28(onClick = { passwordVisible = !passwordVisible }) {
                         Text(if (passwordVisible) "○" else "●", style = AppTypography.caption.copy(color = AppColors.Text2))

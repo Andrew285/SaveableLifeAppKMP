@@ -103,6 +103,16 @@ class SaveableRepository(db: SaveableDatabase) {
         )
     }
 
+    suspend fun cleanupOldItems() {
+        itemQueries.deleteOldSyncedItems()
+    }
+
+    fun getItemsPaged(limit: Long, offset: Long): List<SavedItem> =
+        itemQueries.getItemsPaged(limit, offset).executeAsList().map { it.toModel() }
+
+    fun getActiveItemsCount(): Long =
+        itemQueries.getActiveItemsCount().executeAsOne()
+
     suspend fun deleteItem(id: String) {
         itemQueries.deleteItem(id)
     }

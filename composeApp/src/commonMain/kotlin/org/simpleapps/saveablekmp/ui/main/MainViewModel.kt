@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import org.simpleapps.saveablekmp.Clipboard
 import org.simpleapps.saveablekmp.ImagePicker
 import org.simpleapps.saveablekmp.data.model.Category
@@ -29,6 +30,8 @@ data class MainState(
     val inputPriority: Priority = Priority.MEDIUM,
     val isExpanded: Boolean = false,
     val items: List<SavedItem> = emptyList(),
+    val isLoadingMore: Boolean = false,
+    val hasMoreItems: Boolean = true,
     val categories: List<Category> = emptyList(),
     val filterCategory: String = "",
     val filterTime: TimeFilter = TimeFilter.ALL,
@@ -42,11 +45,37 @@ data class MainState(
     val newItemsFromSync: Int = 0,
 ) {
     val filteredItems: List<SavedItem>
-        get() = items.filter { item ->
-            val catMatch = filterCategory.isEmpty() ||
-                    item.category == filterCategory ||
-                    item.subcategory == filterCategory
-            catMatch
+        get() {
+            val now = System.currentTimeMillis()
+            val timeFiltered = when (filterTime) {
+                TimeFilter.ALL -> items
+                TimeFilter.TODAY -> {
+                    val startOfDay = java.util.Calendar.getInstance().apply {
+                        set(java.util.Calendar.HOUR_OF_DAY, 0)
+                        set(java.util.Calendar.MINUTE, 0)
+                        set(java.util.Calendar.SECOND, 0)
+                        set(java.util.Calendar.MILLISECOND, 0)
+                    }.timeInMillis
+                    items.filter { it.createdAt >= startOfDay }
+                }
+                TimeFilter.YESTERDAY -> {
+                    val cal = java.util.Calendar.getInstance()
+                    cal.add(java.util.Calendar.DAY_OF_YEAR, -1)
+                    cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+                    cal.set(java.util.Calendar.MINUTE, 0)
+                    cal.set(java.util.Calendar.SECOND, 0)
+                    val start = cal.timeInMillis
+                    val end = start + 24 * 60 * 60 * 1000
+                    items.filter { it.createdAt in start until end }
+                }
+                TimeFilter.WEEK -> items.filter { it.createdAt >= now - 7L * 24 * 60 * 60 * 1000 }
+                TimeFilter.MONTH -> items.filter { it.createdAt >= now - 30L * 24 * 60 * 60 * 1000 }
+            }
+            return timeFiltered.filter { item ->
+                filterCategory.isEmpty() ||
+                        item.category == filterCategory ||
+                        item.subcategory == filterCategory
+            }
         }
 
     val totalCount get() = items.size
@@ -89,6 +118,11 @@ class MainViewModel(
     private val _state = MutableStateFlow(MainState())
     val state: StateFlow<MainState> = _state.asStateFlow()
 
+    private val PAGE_SIZE = 30
+    private var currentOffset = 0L
+    private var isLoadingMore = false
+    private var hasMoreItems = true
+
     // Channel для debounce синхронізації
     private val syncTrigger = MutableSharedFlow<Unit>(
         extraBufferCapacity = 1,
@@ -97,38 +131,62 @@ class MainViewModel(
 
     init {
         viewModelScope.launch { repository.initDefaultCategories() }
+        viewModelScope.launch { repository.cleanupOldItems() }
 
+        // Тільки категорії через Flow — НЕ items
         viewModelScope.launch {
-            combine(
-                repository.observeAllItems(),
-                repository.observeCategories(),
-            ) { items, cats -> items to cats }
-                .collect { (items, cats) ->
-                    _state.update { it.copy(items = items, categories = cats) }
-                }
+            repository.observeCategories().collect { cats ->
+                _state.update { it.copy(categories = cats) }
+            }
         }
 
-        // Синхронізація при старті — окремий launch
+        // Items через пагінацію
+        viewModelScope.launch { loadFirstPage() }
+
         viewModelScope.launch { initSync() }
-
-        // Debounce — окремий launch
         viewModelScope.launch {
-            syncTrigger
-                .debounce(3000)
-                .collect { pushToDrive() }
+            syncTrigger.debounce(3000).collect { pushToDrive() }
         }
-
-        // Polling — окремий launch, НЕ всередині initSync
         viewModelScope.launch {
-            println("=== polling started")
-            delay(35_000) // перша перевірка через 35с
+            delay(35_000)
             while (true) {
-                println("=== polling tick, isSignedIn: ${authManager.isSignedIn()}")
-                if (authManager.isSignedIn()) {
-                    pullFromDrive()
-                }
+                if (authManager.isSignedIn()) pullFromDrive()
                 delay(30_000)
             }
+        }
+    }
+    private suspend fun loadFirstPage() {
+        currentOffset = 0L
+        hasMoreItems = true
+        val items = repository.getItemsPaged(PAGE_SIZE.toLong(), 0L)
+        val total = repository.getActiveItemsCount()
+        hasMoreItems = items.size >= PAGE_SIZE && currentOffset + PAGE_SIZE < total
+        currentOffset = items.size.toLong()
+        _state.update { it.copy(
+            items = items,
+            hasMoreItems = hasMoreItems,
+        )}
+    }
+
+    fun loadNextPage() {
+        if (isLoadingMore || !_state.value.hasMoreItems) return
+        isLoadingMore = true
+        viewModelScope.launch {
+            val newItems = repository.getItemsPaged(PAGE_SIZE.toLong(), currentOffset)
+            val total = repository.getActiveItemsCount()
+            currentOffset += newItems.size
+            hasMoreItems = currentOffset < total
+
+            // Фільтруємо дублікати
+            val existingIds = _state.value.items.map { it.id }.toSet()
+            val uniqueNewItems = newItems.filter { it.id !in existingIds }
+
+            _state.update { it.copy(
+                items = _state.value.items + uniqueNewItems,
+                hasMoreItems = hasMoreItems,
+                isLoadingMore = false,
+            )}
+            isLoadingMore = false
         }
     }
 
@@ -188,64 +246,19 @@ class MainViewModel(
         try {
             val remoteItems = driveSync.pullItems()
             processRemoteItems(remoteItems)
-
-            if (remoteItems.isEmpty()) return
-
-            val localItemsMap = repository.getAllItemsIncludingDeleted()
-                .associateBy { it.id }
-
-            var newCount = 0
-            var updatedCount = 0
-
-            remoteItems.forEach { remoteItem ->
-                val localItem = localItemsMap[remoteItem.id]
-                println("=== item ${remoteItem.id.take(6)}: " +
-                        "remote.updatedAt=${remoteItem.updatedAt}, " +
-                        "local.updatedAt=${localItem?.updatedAt}, " +
-                        "local.isSynced=${localItem?.isSynced}, " +
-                        "remote.isDeleted=${remoteItem.isDeleted}"
-                )
-
-                when {
-                    remoteItem.isDeleted -> {
-                        repository.deleteItem(remoteItem.id)
-                    }
-                    localItem == null -> {
-                        repository.insertItem(remoteItem.copy(isSynced = true))
-                        newCount++
-                    }
-                    !localItem.isSynced -> {
-                        // локальні зміни — пропускаємо
-                        println("=== skip ${remoteItem.id.take(6)}: local unsyced")
-                    }
-                    remoteItem.updatedAt > localItem.updatedAt -> {
-                        repository.insertItem(remoteItem.copy(isSynced = true))
-                        updatedCount++
-                        println("=== updated ${remoteItem.id.take(6)}")
-                    }
-                    else -> {
-                        println("=== skip ${remoteItem.id.take(6)}: local is newer or equal")
-                    }
-                }
-            }
-
-            if (newCount > 0) {
-                _state.update { it.copy(newItemsFromSync = newCount) }
-            }
-            println("=== Pulled ${remoteItems.size} items, $newCount new, $updatedCount updated")
+            loadFirstPage()
         } catch (e: Exception) {
             val msg = e.message ?: ""
             if (msg.contains("401") || msg.contains("UNAUTHENTICATED") || msg.contains("No 'id'")) {
-                // Токен протік — оновлюємо
                 println("=== token expired, refreshing...")
                 try {
                     val newToken = authManager.signIn()
                     if (newToken != null) {
                         driveSync.setToken(newToken)
                         println("=== token refreshed, retrying pull")
-                        // Повторна спроба
                         val remoteItems = driveSync.pullItems()
                         processRemoteItems(remoteItems)
+                        loadFirstPage()
                     }
                 } catch (refreshError: Exception) {
                     println("=== token refresh failed: ${refreshError.message}")
@@ -259,16 +272,16 @@ class MainViewModel(
     private suspend fun processRemoteItems(remoteItems: List<SavedItem>) {
         if (remoteItems.isEmpty()) return
         val localItemsMap = repository.getAllItemsIncludingDeleted().associateBy { it.id }
-        val existingIds = _state.value.items.map { it.id }.toSet()
         var newCount = 0
         var updatedCount = 0
 
         remoteItems.forEach { remoteItem ->
             val localItem = localItemsMap[remoteItem.id]
-            println("=== item ${remoteItem.id.take(6)}: remote=${remoteItem.updatedAt}, local=${localItem?.updatedAt}, synced=${localItem?.isSynced}")
             when {
                 remoteItem.isDeleted -> repository.deleteItem(remoteItem.id)
                 localItem == null -> {
+                    // Перевіряємо чи елемент не був видалений через cleanup
+                    // (якщо його немає локально але він synced в Drive — вставляємо)
                     repository.insertItem(remoteItem.copy(isSynced = true))
                     newCount++
                 }
@@ -285,29 +298,36 @@ class MainViewModel(
         println("=== Pulled ${remoteItems.size}, $newCount new, $updatedCount updated")
     }
 
+    // В MainViewModel додай:
+    private val pushMutex = kotlinx.coroutines.sync.Mutex()
+
     private suspend fun pushToDrive() {
-        try {
-            val unsynced = repository.getUnsyncedItems()
-            println("=== pushToDrive: ${unsynced.size} unsynced items, token: ${driveSync.getToken()}")
-            if (unsynced.isNotEmpty()) {
+        if (pushMutex.isLocked) {
+            println("=== pushToDrive: already running, skip")
+            return
+        }
+        pushMutex.withLock {
+            try {
+                val unsynced = repository.getUnsyncedItems()
+                if (unsynced.isEmpty()) return
+                println("=== pushToDrive: ${unsynced.size} items")
                 driveSync.pushItems()
                 println("=== Pushed ${unsynced.size} items")
-            }
-        } catch (e: Exception) {
-            val msg = e.message ?: ""
-            if (msg.contains("401") || msg.contains("UNAUTHENTICATED")) {
-                try {
-                    val newToken = authManager.signIn()
-                    if (newToken != null) {
-                        driveSync.setToken(newToken)
-                        driveSync.pushItems()
-                        println("=== Pushed after token refresh")
+            } catch (e: Exception) {
+                val msg = e.message ?: ""
+                if (msg.contains("401") || msg.contains("UNAUTHENTICATED")) {
+                    try {
+                        val newToken = authManager.signIn()
+                        if (newToken != null) {
+                            driveSync.setToken(newToken)
+                            driveSync.pushItems()
+                        }
+                    } catch (refreshError: Exception) {
+                        println("=== push refresh failed: ${refreshError.message}")
                     }
-                } catch (refreshError: Exception) {
-                    println("=== push refresh failed: ${refreshError.message}")
+                } else {
+                    println("=== Push failed: ${e.message}")
                 }
-            } else {
-                println("=== Push failed: ${e.message}")
             }
         }
     }
@@ -378,13 +398,20 @@ class MainViewModel(
                             scrollToTop = true
                         )
                     }
+                    loadFirstPage()
                     triggerSync()
                 }
             }
             is MainEvent.Delete -> {
                 viewModelScope.launch {
-                    repository.softDeleteItem(event.id)  // ← замість deleteItem
-                    _state.update { it.copy(toastMessage = "Видалено") }
+                    repository.softDeleteItem(event.id)
+                    _state.update { s ->
+                        s.copy(
+                            items = s.items.filter { it.id != event.id },
+                            toastMessage = "Видалено",
+                        )
+                    }
+                    // debounce замість прямого push — збирає кілька видалень в одне
                     triggerSync()
                 }
             }
@@ -394,11 +421,20 @@ class MainViewModel(
             }
             is MainEvent.StartEdit -> _state.update { it.copy(editingItem = event.item, isEditDialogOpen = true) }
             is MainEvent.CloseEdit -> _state.update { it.copy(editingItem = null, isEditDialogOpen = false) }
-            is MainEvent.SaveEdit  -> {
+            is MainEvent.SaveEdit -> {
                 viewModelScope.launch {
                     updateItem(event.item)
-                    _state.update { it.copy(editingItem = null, isEditDialogOpen = false, toastMessage = "Оновлено ✓") }
-                    triggerSync()
+                    // Оновлюємо елемент в списку одразу
+                    _state.update { s ->
+                        s.copy(
+                            items = s.items.map { if (it.id == event.item.id) event.item else it },
+                            editingItem = null,
+                            isEditDialogOpen = false,
+                            toastMessage = "Оновлено ✓",
+                        )
+                    }
+                    // Пушимо одразу
+                    pushToDrive()
                 }
             }
             is MainEvent.FilterCategory -> _state.update { it.copy(filterCategory = event.id) }
