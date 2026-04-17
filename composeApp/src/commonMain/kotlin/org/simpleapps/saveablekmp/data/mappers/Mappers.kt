@@ -16,8 +16,11 @@ fun org.simpleapps.saveablekmp.data.db.SavedItem.toModel() = SavedItem(
     updatedAt = updated_at,
     isSynced = is_synced == 1L,
     isDeleted = is_deleted == 1L,
+    nextReviewAt = next_review_at,
+    easeFactor = ease_factor,
+    interval = interval_.toInt(),
+    repetitions = repetitions.toInt(),
 )
-
 fun org.simpleapps.saveablekmp.data.db.Category.toModel() = Category(
     id = id,
     name = name,

@@ -19,6 +19,7 @@ import org.simpleapps.saveablekmp.domain.usecase.SaveItemUseCase
 import org.simpleapps.saveablekmp.domain.usecase.UpdateItemUseCase
 import org.simpleapps.saveablekmp.sync.DriveSync
 import org.simpleapps.saveablekmp.sync.GoogleAuthManager
+import org.simpleapps.saveablekmp.sync.SyncManager
 import org.simpleapps.saveablekmp.toBase64DataUrl
 
 data class MainState(
@@ -113,6 +114,7 @@ class MainViewModel(
     private val updateItem: UpdateItemUseCase,
     private val authManager: GoogleAuthManager,
     private val driveSync: DriveSync,
+    private val syncManager: SyncManager,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(MainState())
@@ -124,10 +126,10 @@ class MainViewModel(
     private var hasMoreItems = true
 
     // Channel для debounce синхронізації
-    private val syncTrigger = MutableSharedFlow<Unit>(
-        extraBufferCapacity = 1,
-        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
-    )
+//    private val syncTrigger = MutableSharedFlow<Unit>(
+//        extraBufferCapacity = 1,
+//        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
+//    )
 
     init {
         viewModelScope.launch { repository.initDefaultCategories() }
@@ -144,9 +146,9 @@ class MainViewModel(
         viewModelScope.launch { loadFirstPage() }
 
         viewModelScope.launch { initSync() }
-        viewModelScope.launch {
-            syncTrigger.debounce(3000).collect { pushToDrive() }
-        }
+//        viewModelScope.launch {
+//            syncTrigger.debounce(3000).collect { pushToDrive() }
+//        }
         viewModelScope.launch {
             delay(35_000)
             while (true) {
@@ -154,7 +156,11 @@ class MainViewModel(
                 delay(30_000)
             }
         }
+        viewModelScope.launch {
+            syncManager.flow.debounce(3000).collect { pushToDrive() }
+        }
     }
+
     private suspend fun loadFirstPage() {
         currentOffset = 0L
         hasMoreItems = true
@@ -244,8 +250,14 @@ class MainViewModel(
 
     private suspend fun pullFromDrive() {
         try {
+            // Items (існуючий код)
             val remoteItems = driveSync.pullItems()
             processRemoteItems(remoteItems)
+
+            // Categories — НОВЕ
+            val remoteCategories = driveSync.pullCategories()
+            processRemoteCategories(remoteCategories)
+
             loadFirstPage()
         } catch (e: Exception) {
             val msg = e.message ?: ""
@@ -269,6 +281,17 @@ class MainViewModel(
         }
     }
 
+    private suspend fun processRemoteCategories(remoteCategories: List<Category>) {
+        if (remoteCategories.isEmpty()) return
+        remoteCategories.forEach { remoteCat ->
+            // Вбудовані категорії не перезаписуємо
+            if (!remoteCat.isBuiltin) {
+                repository.insertOrUpdateCategory(remoteCat)
+                repository.markCategorySynced(remoteCat.id)
+            }
+        }
+    }
+
     private suspend fun processRemoteItems(remoteItems: List<SavedItem>) {
         if (remoteItems.isEmpty()) return
         val localItemsMap = repository.getAllItemsIncludingDeleted().associateBy { it.id }
@@ -278,19 +301,37 @@ class MainViewModel(
         remoteItems.forEach { remoteItem ->
             val localItem = localItemsMap[remoteItem.id]
             when {
-                remoteItem.isDeleted -> repository.deleteItem(remoteItem.id)
+                // 1. Remote каже "видалено" — soft delete щоб не з'явився знову при наступному pull
+                remoteItem.isDeleted -> {
+                    if (localItem != null && !localItem.isDeleted) {
+                        repository.softDeleteItem(remoteItem.id)
+                        repository.markSynced(remoteItem.id)
+                    }
+                }
+
+                // 2. Локально не існує — вставляємо
                 localItem == null -> {
-                    // Перевіряємо чи елемент не був видалений через cleanup
-                    // (якщо його немає локально але він synced в Drive — вставляємо)
                     repository.insertItem(remoteItem.copy(isSynced = true))
                     newCount++
                 }
-                !localItem.isSynced -> { /* локальні зміни */ }
+
+                // 3. І локальний і remote змінені — перемагає новіший updatedAt
+                !localItem.isSynced -> {
+                    if (remoteItem.updatedAt > localItem.updatedAt) {
+                        repository.insertItem(remoteItem.copy(isSynced = true))
+                        updatedCount++
+                    }
+                    // якщо локальний новіший — нічого, він піде в наступний push
+                }
+
+                // 4. Локальний synced, remote новіший — оновлюємо
                 remoteItem.updatedAt > localItem.updatedAt -> {
                     repository.insertItem(remoteItem.copy(isSynced = true))
                     updatedCount++
                 }
-                else -> { /* skip */ }
+
+                // 5. Однакові або локальний новіший — нічого не робимо
+                else -> { }
             }
         }
 
@@ -302,17 +343,22 @@ class MainViewModel(
     private val pushMutex = kotlinx.coroutines.sync.Mutex()
 
     private suspend fun pushToDrive() {
-        if (pushMutex.isLocked) {
-            println("=== pushToDrive: already running, skip")
-            return
-        }
         pushMutex.withLock {
             try {
+                // Items (існуючий код)
                 val unsynced = repository.getUnsyncedItems()
-                if (unsynced.isEmpty()) return
-                println("=== pushToDrive: ${unsynced.size} items")
-                driveSync.pushItems()
-                println("=== Pushed ${unsynced.size} items")
+                if (unsynced.isNotEmpty()) {
+                    driveSync.pushItems()
+                    // pushItems має маркувати synced всередині або:
+                    unsynced.forEach { repository.markSynced(it.id) }
+                }
+
+                // Categories — НОВЕ
+                val unsyncedCats = repository.getUnsyncedCategories()
+                if (unsyncedCats.isNotEmpty()) {
+                    driveSync.pushCategories(unsyncedCats)
+                    unsyncedCats.forEach { repository.markCategorySynced(it.id) }
+                }
             } catch (e: Exception) {
                 val msg = e.message ?: ""
                 if (msg.contains("401") || msg.contains("UNAUTHENTICATED")) {
@@ -334,10 +380,7 @@ class MainViewModel(
 
     // Тригерить debounce sync після будь-якої зміни
     private fun triggerSync() {
-        println("=== triggerSync called, isSignedIn: ${authManager.isSignedIn()}")
-        if (authManager.isSignedIn()) {
-            syncTrigger.tryEmit(Unit)
-        }
+        syncManager.trigger()
     }
 
     fun onEvent(event: MainEvent) {

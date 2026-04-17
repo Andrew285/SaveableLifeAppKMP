@@ -37,6 +37,7 @@ import org.simpleapps.saveablekmp.ui.theme.*
 fun MainScreen(
     viewModel: MainViewModel,
     onNavigateSettings: () -> Unit,
+    onNavigateFlashcards: () -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
@@ -94,7 +95,11 @@ fun MainScreen(
                     }
                 }
                 Spacer(Modifier.width(12.dp))
-                GhostButton("⚙ Налаштування", onClick = onNavigateSettings)
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GhostButton("🃏", onClick = onNavigateFlashcards)
+                    GhostButton("⚙ Налаштування", onClick = onNavigateSettings)
+                }
             }
 
             Spacer(Modifier.height(20.dp))
@@ -333,47 +338,77 @@ private fun InputArea(
                     .padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    LabeledField("Назва", Modifier.weight(1f)) {
+                if (state.inputCategory == "flashcard") {
+                    // Спеціальні поля для флешкартки
+                    LabeledField("ПЕРЕДНЯ СТОРОНА") {
                         AppTextField(
-                            value = state.inputTitle,
-                            onValueChange = { onEvent(MainEvent.TitleChanged(it)) },
+                            value = state.inputValue,
+                            onValueChange = { onEvent(MainEvent.InputChanged(it)) },
                             modifier = Modifier.fillMaxWidth(),
-                            placeholder = "Назва запису...",
+                            placeholder = "Питання або термін...",
                         )
                     }
-                    LabeledField("Пріоритет", Modifier.weight(1f)) {
-                        PriorityDropdown(
-                            selected = state.inputPriority,
-                            onChange = { onEvent(MainEvent.PriorityChanged(it)) },
+                    LabeledField("ЗАДНЯ СТОРОНА (опис)") {
+                        AppTextField(
+                            value = state.inputDescription,
+                            onValueChange = { onEvent(MainEvent.DescChanged(it)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = "Відповідь або пояснення...",
                         )
                     }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    LabeledField("Категорія", Modifier.weight(1f)) {
+                    LabeledField("КОЛОДА (обов'язково)") {
+                        val flashcardSubs = state.categories.filter { it.parentId == "flashcard" }
                         CategoryDropdown(
-                            categories = state.categories.filter { it.parentId == null },
-                            selected = state.inputCategory,
-                            onChange = { onEvent(MainEvent.CategoryChanged(it)) },
-                        )
-                    }
-                    LabeledField("Підкатегорія", Modifier.weight(1f)) {
-                        val subs = state.categories.filter { it.parentId == state.inputCategory }
-                        CategoryDropdown(
-                            categories = subs,
+                            categories = flashcardSubs,
                             selected = state.inputSubcategory,
                             onChange = { onEvent(MainEvent.SubcategoryChanged(it)) },
-                            emptyLabel = "— немає —",
+                            emptyLabel = "Оберіть колоду...",
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                }
-                LabeledField("Опис") {
-                    AppTextField(
-                        value = state.inputDescription,
-                        onValueChange = { onEvent(MainEvent.DescChanged(it)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = "Додатковий опис...",
-                    )
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        LabeledField("Назва", Modifier.weight(1f)) {
+                            AppTextField(
+                                value = state.inputTitle,
+                                onValueChange = { onEvent(MainEvent.TitleChanged(it)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = "Назва запису...",
+                            )
+                        }
+                        LabeledField("Пріоритет", Modifier.weight(1f)) {
+                            PriorityDropdown(
+                                selected = state.inputPriority,
+                                onChange = { onEvent(MainEvent.PriorityChanged(it)) },
+                            )
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        LabeledField("Категорія", Modifier.weight(1f)) {
+                            CategoryDropdown(
+                                categories = state.categories.filter { it.parentId == null },
+                                selected = state.inputCategory,
+                                onChange = { onEvent(MainEvent.CategoryChanged(it)) },
+                            )
+                        }
+                        LabeledField("Підкатегорія", Modifier.weight(1f)) {
+                            val subs = state.categories.filter { it.parentId == state.inputCategory }
+                            CategoryDropdown(
+                                categories = subs,
+                                selected = state.inputSubcategory,
+                                onChange = { onEvent(MainEvent.SubcategoryChanged(it)) },
+                                emptyLabel = "— немає —",
+                            )
+                        }
+                    }
+                    LabeledField("Опис") {
+                        AppTextField(
+                            value = state.inputDescription,
+                            onValueChange = { onEvent(MainEvent.DescChanged(it)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = "Додатковий опис...",
+                        )
+                    }
                 }
             }
         }

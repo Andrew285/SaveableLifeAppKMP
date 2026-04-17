@@ -13,9 +13,9 @@ import org.simpleapps.saveablekmp.data.db.SaveableDatabase
 import org.simpleapps.saveablekmp.data.mappers.toModel
 import org.simpleapps.saveablekmp.data.model.Category
 import org.simpleapps.saveablekmp.data.model.DEFAULT_CATEGORIES
-import org.simpleapps.saveablekmp.data.model.Priority
 import org.simpleapps.saveablekmp.data.model.SavedItem
 import org.simpleapps.saveablekmp.data.model.TimeFilter
+import org.simpleapps.saveablekmp.domain.srs.SrsResult
 
 class SaveableRepository(db: SaveableDatabase) {
 
@@ -74,6 +74,10 @@ class SaveableRepository(db: SaveableDatabase) {
             updated_at = item.updatedAt,
             is_synced = if (item.isSynced) 1L else 0L,
             is_deleted = if (item.isDeleted) 1L else 0L,
+            next_review_at = item.nextReviewAt,
+            ease_factor = item.easeFactor,
+            interval_ = item.interval.toLong(),
+            repetitions = item.repetitions.toLong(),
         )
     }
 
@@ -172,8 +176,54 @@ class SaveableRepository(db: SaveableDatabase) {
         )
     }
 
+    fun getUnsyncedCategories(): List<Category> =
+        itemQueries.getUnsyncedCategories().executeAsList().map { it.toModel() }
+
+    suspend fun markCategorySynced(id: String) {
+        itemQueries.markCategorySynced(id)
+    }
+
+    suspend fun insertOrUpdateCategory(cat: Category) {
+        itemQueries.insertCategory(
+            id = cat.id,
+            name = cat.name,
+            color = cat.color,
+            parent_id = cat.parentId,
+            is_builtin = if (cat.isBuiltin) 1L else 0L,
+        )
+    }
+
     suspend fun deleteCategory(id: String) {
         itemQueries.updateItemsCategoryOnDelete(id, id)
         itemQueries.deleteCategory(id)
+    }
+
+    // ── FlashCards ───────────────────────────────────────────────────────────
+
+    fun getDecks(): List<Pair<String, Long>> =
+        itemQueries.getDecks().executeAsList().map { it.subcategory to it.card_count }
+
+    fun getFlashcardsByDeck(deckId: String): List<SavedItem> =
+        itemQueries.getFlashcardsByDeck(deckId).executeAsList().map { it.toModel() }
+
+    fun getDueFlashcards(deckId: String): List<SavedItem> {
+        val now = Clock.System.now().toEpochMilliseconds()
+        return itemQueries.getDueFlashcards(deckId, now).executeAsList().map { it.toModel() }
+    }
+
+    fun getDueCardsCount(deckId: String): Long {
+        val now = Clock.System.now().toEpochMilliseconds()
+        return itemQueries.getDueCardsCount(deckId, now).executeAsOne()
+    }
+
+    suspend fun updateSrsData(item: SavedItem, result: SrsResult) {
+        itemQueries.updateSrsData(
+            next_review_at = result.nextReviewAt,
+            ease_factor = result.easeFactor,
+            interval_ = result.interval.toLong(),
+            repetitions = result.repetitions.toLong(),
+            updated_at = Clock.System.now().toEpochMilliseconds(),
+            id = item.id,
+        )
     }
 }

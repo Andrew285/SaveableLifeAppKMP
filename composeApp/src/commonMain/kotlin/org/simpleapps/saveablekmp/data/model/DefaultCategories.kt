@@ -9,4 +9,5 @@ val DEFAULT_CATEGORIES = listOf(
     Category(id = "image",    name = "Зображення",      color = "#fb923c", isBuiltin = true),
     Category(id = "link",     name = "Посилання",       color = "#34d399", isBuiltin = true),
     Category(id = "password", name = "Паролі",          color = "#f87171", isBuiltin = true),
+    Category(id = "flashcard", name = "Флеш-картка",    color = "#38bdf8", isBuiltin = true),
 )

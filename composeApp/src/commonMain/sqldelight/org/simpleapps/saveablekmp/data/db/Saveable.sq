@@ -9,7 +9,11 @@ CREATE TABLE SavedItem (
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     is_synced INTEGER NOT NULL DEFAULT 0,
-    is_deleted INTEGER NOT NULL DEFAULT 0
+    is_deleted INTEGER NOT NULL DEFAULT 0,
+    next_review_at INTEGER NOT NULL DEFAULT 0,
+    ease_factor REAL NOT NULL DEFAULT 2.5,
+    interval_ INTEGER NOT NULL DEFAULT 0,
+    repetitions INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE Category (
@@ -17,7 +21,8 @@ CREATE TABLE Category (
     name TEXT NOT NULL,
     color TEXT NOT NULL DEFAULT '#4ade80',
     parent_id TEXT,
-    is_builtin INTEGER NOT NULL DEFAULT 0
+    is_builtin INTEGER NOT NULL DEFAULT 0,
+    is_synced INTEGER NOT NULL DEFAULT 0
 );
 
 deleteOldSyncedItems:
@@ -41,8 +46,8 @@ getActiveItemsCount:
 SELECT COUNT(*) FROM SavedItem WHERE is_deleted = 0;
 
 insertItem:
-INSERT OR REPLACE INTO SavedItem(id, value_, title, description, category, subcategory, priority, created_at, updated_at, is_synced, is_deleted)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT OR REPLACE INTO SavedItem(id, value_, title, description, category, subcategory, priority, created_at, updated_at, is_synced, is_deleted, next_review_at, ease_factor, interval_, repetitions)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?);
 
 getAllActiveItems:
 SELECT * FROM SavedItem WHERE is_deleted = 0 ORDER BY created_at DESC;
@@ -95,11 +100,62 @@ updateItemsCategoryOnDelete:
 UPDATE SavedItem SET category = 'text', subcategory = '' WHERE category = ? OR subcategory = ?;
 
 insertCategory:
-INSERT OR REPLACE INTO Category(id, name, color, parent_id, is_builtin)
-VALUES (?, ?, ?, ?, ?);
+INSERT OR IGNORE INTO Category(id, name, color, parent_id, is_builtin, is_synced)
+VALUES (?, ?, ?, ?, ?, 0);
+
+updateCategory:
+UPDATE Category
+SET name = ?, color = ?, parent_id = ?, is_synced = 0
+WHERE id = ?;
+
+getUnsyncedCategories:
+SELECT * FROM Category WHERE is_synced = 0;
+
+markCategorySynced:
+UPDATE Category SET is_synced = 1 WHERE id = ?;
 
 getAllCategories:
 SELECT * FROM Category ORDER BY is_builtin DESC, name ASC;
 
 deleteCategory:
 DELETE FROM Category WHERE id = ? AND is_builtin = 0;
+
+getFlashcardsByDeck:
+SELECT * FROM SavedItem
+WHERE is_deleted = 0
+  AND category = 'flashcard'
+  AND subcategory = ?
+ORDER BY created_at DESC;
+
+getDueFlashcards:
+SELECT * FROM SavedItem
+WHERE is_deleted = 0
+  AND category = 'flashcard'
+  AND subcategory = ?
+  AND next_review_at <= ?
+ORDER BY next_review_at ASC;
+
+updateSrsData:
+UPDATE SavedItem
+SET next_review_at = ?,
+    ease_factor = ?,
+    interval_ = ?,
+    repetitions = ?,
+    updated_at = ?,
+    is_synced = 0
+WHERE id = ?;
+
+getDecks:
+SELECT subcategory, COUNT(*) AS card_count
+FROM SavedItem
+WHERE is_deleted = 0
+  AND category = 'flashcard'
+  AND subcategory != ''
+GROUP BY subcategory;
+
+getDueCardsCount:
+SELECT COUNT(*) FROM SavedItem
+WHERE is_deleted = 0
+  AND category = 'flashcard'
+  AND subcategory = ?
+  AND next_review_at <= ?;
