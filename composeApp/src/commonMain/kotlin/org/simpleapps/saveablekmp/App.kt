@@ -8,9 +8,11 @@ import org.simpleapps.saveablekmp.ui.main.MainScreen
 import org.simpleapps.saveablekmp.ui.main.MainViewModel
 import org.simpleapps.saveablekmp.ui.settings.SettingsScreen
 import org.simpleapps.saveablekmp.ui.settings.SettingsViewModel
+import org.simpleapps.saveablekmp.ui.tasks.TasksScreen
+import org.simpleapps.saveablekmp.ui.tasks.TasksViewModel
 import org.simpleapps.saveablekmp.ui.theme.SaveableTheme
 
-enum class Screen { MAIN, SETTINGS, FLASHCARDS }
+enum class Screen { MAIN, SETTINGS, FLASHCARDS, TASKS }
 
 @Composable
 fun App() {
@@ -24,6 +26,7 @@ fun App() {
                     viewModel = viewModel,
                     onNavigateSettings = { currentScreen = Screen.SETTINGS },
                     onNavigateFlashcards = { currentScreen = Screen.FLASHCARDS },
+                    onNavigateTasks = { currentScreen = Screen.TASKS }
                 )
             }
             Screen.SETTINGS -> {
@@ -36,6 +39,13 @@ fun App() {
             Screen.FLASHCARDS -> {
                 val viewModel = koinViewModel<FlashcardsViewModel>()
                 FlashcardsScreen(
+                    viewModel = viewModel,
+                    onBack = { currentScreen = Screen.MAIN },
+                )
+            }
+            Screen.TASKS -> {
+                val viewModel = koinViewModel<TasksViewModel>()
+                TasksScreen(
                     viewModel = viewModel,
                     onBack = { currentScreen = Screen.MAIN },
                 )

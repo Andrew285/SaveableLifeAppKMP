@@ -16,6 +16,7 @@ data class SavedItem(
     val updatedAt: Long = Clock.System.now().toEpochMilliseconds(),
     val isSynced: Boolean = false,
     val isDeleted: Boolean = false,
+    val isCompleted: Boolean = false,
 
     // SRC fields
     val nextReviewAt: Long = 0L,    // next revision

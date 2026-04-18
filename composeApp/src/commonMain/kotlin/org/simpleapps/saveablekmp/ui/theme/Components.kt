@@ -8,6 +8,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -15,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.simpleapps.saveablekmp.ui.main.LabeledField
 
 val RoundedSmall  = RoundedCornerShape(6.dp)
 val RoundedMedium = RoundedCornerShape(8.dp)
@@ -179,4 +184,88 @@ inline fun BasicTextField(
         cursorBrush = cursorBrush,
         decorationBox = decorationBox,
     )
+}
+
+@Composable
+fun DeadlineField(
+    deadlineMs: Long,
+    onDeadlineChange: (Long) -> Unit,
+) {
+    // Конвертуємо epochMs → "dd.mm.yyyy" для відображення
+    var text by remember(deadlineMs) {
+        mutableStateOf(if (deadlineMs == 0L) "" else epochMsToDateString(deadlineMs))
+    }
+    var isError by remember { mutableStateOf(false) }
+
+    LabeledField("Дедлайн (дд.мм.рррр)") {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            AppTextField(
+                value = text,
+                onValueChange = { input ->
+                    // Автоформатування: вставляємо крапки автоматично
+                    val digits = input.filter { it.isDigit() }.take(8)
+                    text = buildString {
+                        digits.forEachIndexed { i, c ->
+                            if (i == 2 || i == 4) append('.')
+                            append(c)
+                        }
+                    }
+                    // Парсимо коли введено повну дату
+                    isError = false
+                    if (digits.length == 8) {
+                        val ms = dateStringToEpochMs(text)
+                        if (ms != null) {
+                            onDeadlineChange(ms)
+                            isError = false
+                        } else {
+                            isError = true
+                        }
+                    } else if (digits.isEmpty()) {
+                        onDeadlineChange(0L)
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = "31.12.2025",
+            )
+            if (isError) {
+                Text(
+                    "Невірний формат дати",
+                    style = AppTypography.caption.copy(color = AppColors.PriorityHigh),
+                )
+            }
+            if (deadlineMs > 0L && !isError) {
+                Text(
+                    "✓ ${epochMsToDateString(deadlineMs)}",
+                    style = AppTypography.caption.copy(color = AppColors.Green),
+                )
+            }
+        }
+    }
+}
+
+// Парсинг "dd.mm.yyyy" → epochMs (початок дня)
+fun dateStringToEpochMs(s: String): Long? {
+    return try {
+        val parts = s.split(".")
+        if (parts.size != 3) return null
+        val day   = parts[0].toInt()
+        val month = parts[1].toInt()
+        val year  = parts[2].toInt()
+        if (day !in 1..31 || month !in 1..12 || year < 2000) return null
+
+        val cal = java.util.Calendar.getInstance()
+        cal.set(year, month - 1, day, 0, 0, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        cal.timeInMillis
+    } catch (_: Exception) { null }
+}
+
+// epochMs → "dd.mm.yyyy"
+fun epochMsToDateString(ms: Long): String {
+    val cal = java.util.Calendar.getInstance()
+    cal.timeInMillis = ms
+    val d = cal.get(java.util.Calendar.DAY_OF_MONTH).toString().padStart(2, '0')
+    val m = (cal.get(java.util.Calendar.MONTH) + 1).toString().padStart(2, '0')
+    val y = cal.get(java.util.Calendar.YEAR)
+    return "$d.$m.$y"
 }

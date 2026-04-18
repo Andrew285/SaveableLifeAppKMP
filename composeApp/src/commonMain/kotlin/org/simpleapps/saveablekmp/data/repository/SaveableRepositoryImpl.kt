@@ -78,6 +78,7 @@ class SaveableRepository(db: SaveableDatabase) {
             ease_factor = item.easeFactor,
             interval_ = item.interval.toLong(),
             repetitions = item.repetitions.toLong(),
+            is_completed = if (item.isCompleted) 1L else 0L
         )
     }
 
@@ -93,6 +94,7 @@ class SaveableRepository(db: SaveableDatabase) {
             priority = item.priority.name,
             updated_at = newTime,
             id = item.id,
+            is_completed = if (item.isCompleted) 1L else 0L
         )
         // Перевіримо що реально збереглось в БД
         val saved = itemQueries.getAllItemsIncludingDeleted().executeAsList()
@@ -225,5 +227,33 @@ class SaveableRepository(db: SaveableDatabase) {
             updated_at = Clock.System.now().toEpochMilliseconds(),
             id = item.id,
         )
+    }
+
+    fun getTaskItems(): List<SavedItem> =
+        itemQueries.getTaskItems().executeAsList().map { it.toModel() }
+
+    fun observeTaskItems(): Flow<List<SavedItem>> =
+        itemQueries.getTaskItems().asFlow().mapToList(dispatcher).map { list ->
+            list.map { it.toModel() }
+        }
+
+    suspend fun markCompleted(id: String, completed: Boolean, nextReviewAt: Long = 0L) {
+        val now = Clock.System.now().toEpochMilliseconds()
+        itemQueries.markCompleted(
+            is_completed = if (completed) 1L else 0L,
+            updated_at = now,
+            id = id,
+        )
+        if (nextReviewAt > 0L) {
+            // Оновлюємо nextReviewAt для periodic tasks
+            itemQueries.updateSrsData(
+                next_review_at = nextReviewAt,
+                ease_factor = 2.5,
+                interval_ = 1L,
+                repetitions = 0L,
+                updated_at = now,
+                id = id,
+            )
+        }
     }
 }

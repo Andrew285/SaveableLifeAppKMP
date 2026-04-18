@@ -18,6 +18,7 @@ import org.simpleapps.saveablekmp.sync.SyncManager
 import org.simpleapps.saveablekmp.ui.flashcards.FlashcardsViewModel
 import org.simpleapps.saveablekmp.ui.main.MainViewModel
 import org.simpleapps.saveablekmp.ui.settings.SettingsViewModel
+import org.simpleapps.saveablekmp.ui.tasks.TasksViewModel
 
 // Platform-specific module (database driver)
 expect val platformModule: Module
@@ -64,6 +65,14 @@ val viewModelModule = module {
     viewModel {
         FlashcardsViewModel(
             repository = get(),
+            syncManager = get(),
+        )
+    }
+    viewModel {
+        TasksViewModel(
+            repository = get(),
+            saveItem = get(),
+            updateItem = get(),
             syncManager = get(),
         )
     }

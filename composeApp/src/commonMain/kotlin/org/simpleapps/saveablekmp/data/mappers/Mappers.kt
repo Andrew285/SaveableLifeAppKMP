@@ -20,6 +20,7 @@ fun org.simpleapps.saveablekmp.data.db.SavedItem.toModel() = SavedItem(
     easeFactor = ease_factor,
     interval = interval_.toInt(),
     repetitions = repetitions.toInt(),
+    isCompleted = is_completed == 1L,
 )
 fun org.simpleapps.saveablekmp.data.db.Category.toModel() = Category(
     id = id,

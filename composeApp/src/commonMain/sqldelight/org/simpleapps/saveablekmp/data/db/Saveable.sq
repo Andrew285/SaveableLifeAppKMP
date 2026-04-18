@@ -13,7 +13,8 @@ CREATE TABLE SavedItem (
     next_review_at INTEGER NOT NULL DEFAULT 0,
     ease_factor REAL NOT NULL DEFAULT 2.5,
     interval_ INTEGER NOT NULL DEFAULT 0,
-    repetitions INTEGER NOT NULL DEFAULT 0
+    repetitions INTEGER NOT NULL DEFAULT 0,
+    is_completed INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE Category (
@@ -46,8 +47,8 @@ getActiveItemsCount:
 SELECT COUNT(*) FROM SavedItem WHERE is_deleted = 0;
 
 insertItem:
-INSERT OR REPLACE INTO SavedItem(id, value_, title, description, category, subcategory, priority, created_at, updated_at, is_synced, is_deleted, next_review_at, ease_factor, interval_, repetitions)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?);
+INSERT OR REPLACE INTO SavedItem(id, value_, title, description, category, subcategory, priority, created_at, updated_at, is_synced, is_deleted, next_review_at, ease_factor, interval_, repetitions, is_completed)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?);
 
 getAllActiveItems:
 SELECT * FROM SavedItem WHERE is_deleted = 0 ORDER BY created_at DESC;
@@ -78,7 +79,7 @@ SELECT * FROM SavedItem WHERE is_synced = 0;
 
 updateItem:
 UPDATE SavedItem
-SET value_ = ?, title = ?, description = ?, category = ?, subcategory = ?, priority = ?, updated_at = ?, is_synced = 0
+SET value_ = ?, title = ?, description = ?, category = ?, subcategory = ?, priority = ?, updated_at = ?, is_synced = 0, is_completed = ?
 WHERE id = ?;
 
 softDeleteItem:
@@ -159,3 +160,11 @@ WHERE is_deleted = 0
   AND category = 'flashcard'
   AND subcategory = ?
   AND next_review_at <= ?;
+
+getTaskItems:
+SELECT * FROM SavedItem
+WHERE is_deleted = 0 AND category = 'task'
+ORDER BY created_at DESC;
+
+markCompleted:
+UPDATE SavedItem SET is_completed = ?, updated_at = ?, is_synced = 0 WHERE id = ?;
