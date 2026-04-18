@@ -29,7 +29,6 @@ val PRESET_COLORS = listOf(
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
-    onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
 
@@ -44,17 +43,6 @@ fun SettingsScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(RoundedMedium)
-                        .background(AppColors.Bg3)
-                        .border(1.dp, AppColors.Border, RoundedMedium)
-                        .clickable { onBack() },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("←", style = AppTypography.body.copy(color = AppColors.Text2))
-                }
                 Column {
                     Text("Налаштування", style = AppTypography.titleLarge)
                     Text("Керуйте категоріями та правилами", style = AppTypography.subtitle)

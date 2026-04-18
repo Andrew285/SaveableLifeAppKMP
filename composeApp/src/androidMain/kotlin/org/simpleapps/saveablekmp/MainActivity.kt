@@ -9,6 +9,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.core.view.WindowCompat
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 import org.simpleapps.saveablekmp.ui.theme.AppColors
@@ -18,6 +19,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
             Surface(
                 modifier = Modifier.fillMaxSize(),

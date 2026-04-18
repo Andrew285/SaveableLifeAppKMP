@@ -30,7 +30,6 @@ import org.simpleapps.saveablekmp.ui.theme.*
 @Composable
 fun FlashcardsScreen(
     viewModel: FlashcardsViewModel,
-    onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
 
@@ -39,7 +38,7 @@ fun FlashcardsScreen(
             state.isStudying -> StudyScreen(state, viewModel)
             state.isAddingCard -> AddEditCardScreen(state, viewModel)
             state.selectedDeck != null -> DeckScreen(state, viewModel)
-            else -> DecksListScreen(state, viewModel, onBack)
+            else -> DecksListScreen(state, viewModel)
         }
 
         // Toast
@@ -72,7 +71,6 @@ fun FlashcardsScreen(
 private fun DecksListScreen(
     state: FlashcardsState,
     viewModel: FlashcardsViewModel,
-    onBack: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         // Header
@@ -83,17 +81,6 @@ private fun DecksListScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(RoundedMedium)
-                    .background(AppColors.Bg3)
-                    .border(1.dp, AppColors.Border, RoundedMedium)
-                    .clickable { onBack() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("←", style = AppTypography.body.copy(color = AppColors.Text2))
-            }
             Column(modifier = Modifier.weight(1f)) {
                 Text("Флеш-картки", style = AppTypography.titleLarge)
                 Text("${state.decks.size} колод", style = AppTypography.subtitle)

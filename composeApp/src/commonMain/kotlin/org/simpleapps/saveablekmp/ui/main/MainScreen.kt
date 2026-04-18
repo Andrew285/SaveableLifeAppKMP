@@ -36,9 +36,6 @@ import org.simpleapps.saveablekmp.ui.theme.*
 @Composable
 fun MainScreen(
     viewModel: MainViewModel,
-    onNavigateSettings: () -> Unit,
-    onNavigateFlashcards: () -> Unit,
-    onNavigateTasks: () -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
@@ -96,12 +93,6 @@ fun MainScreen(
                     }
                 }
                 Spacer(Modifier.width(12.dp))
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GhostButton("✅ Завдання", onClick = onNavigateTasks)
-                    GhostButton("🃏", onClick = onNavigateFlashcards)
-                    GhostButton("⚙ Налаштування", onClick = onNavigateSettings)
-                }
             }
 
             Spacer(Modifier.height(20.dp))

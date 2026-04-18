@@ -26,7 +26,6 @@ import org.simpleapps.saveablekmp.ui.theme.*
 @Composable
 fun TasksScreen(
     viewModel: TasksViewModel,
-    onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
 
@@ -41,17 +40,6 @@ fun TasksScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(RoundedMedium)
-                        .background(AppColors.Bg3)
-                        .border(1.dp, AppColors.Border, RoundedMedium)
-                        .clickable { onBack() },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("←", style = AppTypography.body.copy(color = AppColors.Text2))
-                }
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Завдання", style = AppTypography.titleLarge)
                     Text(
