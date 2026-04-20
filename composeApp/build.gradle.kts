@@ -125,10 +125,24 @@ dependencies {
 compose.desktop {
     application {
         mainClass = "org.simpleapps.saveablekmp.MainKt"
+
+        jvmArgs += listOf("-Xmx512m")
+
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "SaveableApp"
             packageVersion = "1.0.0"
+
+            // ← Bundlює JVM разом з додатком (~80-100MB але працює без Java на системі)
+            includeAllModules = true
+
+            windows {
+                menuGroup = "SaveableApp"
+                upgradeUuid = "12345678-1234-1234-1234-123456789012" // будь-який UUID
+                dirChooser = true
+                perUserInstall = true
+                iconFile.set(project.file("src/jvmMain/resources/ic_saveable.ico"))
+            }
         }
     }
 }
